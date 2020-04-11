@@ -44,7 +44,7 @@ public class TestKafkaProducerConsumer {
     @Autowired
     private Properties producerProperties;
 
-    private final int MESSAGE_SIZE = 10;
+    private final int MESSAGE_SIZE = 100;
 
     @Test
     public void testConsumer() throws Exception {
