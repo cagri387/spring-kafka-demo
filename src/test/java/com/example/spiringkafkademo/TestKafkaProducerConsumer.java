@@ -15,11 +15,15 @@ import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
+import org.springframework.kafka.listener.ConcurrentMessageListenerContainer;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.KafkaMessageListenerContainer;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.util.AlternativeJdkIdGenerator;
 import org.springframework.util.IdGenerator;
+import org.springframework.util.concurrent.ListenableFuture;
+import org.springframework.util.concurrent.ListenableFutureCallback;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -40,7 +44,7 @@ public class TestKafkaProducerConsumer {
     @Autowired
     private Properties producerProperties;
 
-    private final int MESSAGE_SIZE = 100;
+    private final int MESSAGE_SIZE = 10;
 
     @Test
     public void testConsumer() throws Exception {
@@ -51,7 +55,7 @@ public class TestKafkaProducerConsumer {
         final CountDownLatch latch = new CountDownLatch(MESSAGE_SIZE);
         containerProps.setMessageListener(new FlightProcessor(latch));
 
-        KafkaMessageListenerContainer<Integer, String> container = createContainer(containerProps);
+        ConcurrentMessageListenerContainer<Integer, String> container = createContainer(containerProps);
         container.setBeanName("testAuto");
         container.start();
         Thread.sleep(1000); // wait a bit for the container to start
@@ -83,17 +87,30 @@ public class TestKafkaProducerConsumer {
             producerRecord.headers().add(new RecordHeader(ID, defaultIdGenerator.generateId().toString().getBytes()));
             producerRecord.headers().add(new RecordHeader(TIMESTAMP, Long.valueOf(System.currentTimeMillis()).toString().getBytes()));
 
-            template.send(producerRecord);
+            ListenableFuture<SendResult<Integer, String>> future = template.send(producerRecord);
+            future.addCallback(new ListenableFutureCallback<>() {
+                @Override
+                public void onSuccess(SendResult<Integer, String> result) {
+                    logger.info("Message is produced successfully. MessageId: "+ new String(result.getProducerRecord().headers().headers(ID).iterator().next().value()) + " Offset: " + result.getRecordMetadata().offset() +
+                            " Topic-Partition: " + result.getRecordMetadata().topic() + "-" + result.getRecordMetadata().partition());
+                }
+
+                @Override
+                public void onFailure(Throwable ex) {
+                    logger.error("Message cannot be produced. " + ex);
+                }
+            });
         }
 
         Assertions.assertTrue(latch.await(60, TimeUnit.SECONDS));
     }
 
-    private KafkaMessageListenerContainer<Integer, String> createContainer(ContainerProperties containerProps) {
+    private ConcurrentMessageListenerContainer<Integer, String> createContainer(ContainerProperties containerProps) {
         DefaultKafkaConsumerFactory<Integer, String> cf =
                 new DefaultKafkaConsumerFactory<Integer, String>(new HashMap(consumerProperties));
-        KafkaMessageListenerContainer<Integer, String> container =
-                new KafkaMessageListenerContainer<>(cf, containerProps);
+        ConcurrentMessageListenerContainer<Integer, String> container =
+                new ConcurrentMessageListenerContainer<>(cf, containerProps);
+        container.setConcurrency(10);
         return container;
     }
 
