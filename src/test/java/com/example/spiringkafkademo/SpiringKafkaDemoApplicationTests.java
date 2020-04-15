@@ -9,5 +9,4 @@ class SpiringKafkaDemoApplicationTests {
 	@Test
 	void contextLoads() {
 	}
-
 }
